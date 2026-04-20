@@ -7,7 +7,7 @@ function cleanHtml(html, title) {
   const bodyMatch = out.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
   if (bodyMatch) out = bodyMatch[1];
 
-  // Rimuove commenti HTML
+  // Rimuove commenti
   out = out.replace(/<!--[\s\S]*?-->/g, "");
 
   // Rimuove script, style, noscript
@@ -16,7 +16,7 @@ function cleanHtml(html, title) {
     .replace(/<style[\s\S]*?<\/style>/gi, "")
     .replace(/<noscript[\s\S]*?<\/noscript>/gi, "");
 
-  // Rimuove iframe, svg, canvas, form, input e simili
+  // Rimuove elementi inutili
   out = out
     .replace(/<iframe[\s\S]*?<\/iframe>/gi, "")
     .replace(/<svg[\s\S]*?<\/svg>/gi, "")
@@ -25,39 +25,35 @@ function cleanHtml(html, title) {
     .replace(/<input[^>]*>/gi, "")
     .replace(/<button[\s\S]*?<\/button>/gi, "");
 
-  // Rimuove immagini e thumbnail
+  // Rimuove immagini
   out = out
     .replace(/<img[^>]*>/gi, "")
     .replace(/<figure[\s\S]*?<\/figure>/gi, "");
 
-  // Rimuove elementi noti di MediaWiki/accessori
+  // Rimuove blocchi MediaWiki inutili
   out = out
-    .replace(/<div[^>]*class="[^"]*thumb[^"]*"[\s\S]*?<\/div>/gi, "")
-    .replace(/<div[^>]*class="[^"]*magnify[^"]*"[\s\S]*?<\/div>/gi, "")
-    .replace(/<div[^>]*class="[^"]*printfooter[^"]*"[\s\S]*?<\/div>/gi, "")
-    .replace(/<table[^>]*class="[^"]*toc[^"]*"[\s\S]*?<\/table>/gi, "");
+    .replace(/<div[^>]*thumb[^>]*>[\s\S]*?<\/div>/gi, "")
+    .replace(/<div[^>]*magnify[^>]*>[\s\S]*?<\/div>/gi, "")
+    .replace(/<div[^>]*printfooter[^>]*>[\s\S]*?<\/div>/gi, "")
+    .replace(/<table[^>]*toc[^>]*>[\s\S]*?<\/table>/gi, "");
 
-  // Rimuove riferimenti Dynatrace tipici
+  // Rimuove roba Dynatrace
   out = out
     .replace(/<script[^>]*ruxitagentjs[^>]*>[\s\S]*?<\/script>/gi, "")
     .replace(/\sdata-dtconfig="[^"]*"/gi, "")
-    .replace(/\sdata-dynatrace="[^"]*"/gi, "")
     .replace(/\sdata-dt[^=]*="[^"]*"/gi, "");
 
-  // Rimuove attributi inutili o rumorosi
+  // Rimuove attributi inutili
   out = out
     .replace(/\sclass="[^"]*"/gi, "")
     .replace(/\sid="[^"]*"/gi, "")
     .replace(/\sstyle="[^"]*"/gi, "")
-    .replace(/\sdecoding="[^"]*"/gi, "")
-    .replace(/\ssrcset="[^"]*"/gi, "")
-    .replace(/\sloading="[^"]*"/gi, "")
     .replace(/\swidth="[^"]*"/gi, "")
     .replace(/\sheight="[^"]*"/gi, "")
     .replace(/\salt="[^"]*"/gi, "")
     .replace(/\stitle="[^"]*"/gi, "");
 
-  // Riscrive i link wiki interni verso il proxy
+  // Riscrive link interni verso il proxy
   out = out.replace(
     /href="\/index\.php\/([^"#?]+)"/gi,
     'href="/api/wiki?title=$1"'
@@ -68,21 +64,14 @@ function cleanHtml(html, title) {
     'href="/api/wiki?title=$1"'
   );
 
-  // Semplifica i link esterni: lascia il testo ma non il link
+  // Rimuove link esterni lasciando solo il testo
   out = out.replace(/<a\b[^>]*>([\s\S]*?)<\/a>/gi, "$1");
-
-  // Rimuove tag vuoti ripetuti
-  out = out
-    .replace(/<p>\s*<\/p>/gi, "")
-    .replace(/<div>\s*<\/div>/gi, "")
-    .replace(/<span>\s*<\/span>/gi, "");
 
   return `
     <!doctype html>
     <html lang="it">
       <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>${title}</title>
       </head>
       <body>
@@ -97,6 +86,7 @@ function cleanHtml(html, title) {
 export default async function handler(req, res) {
   try {
     const title = req.query.title || "Registrazione_e_autenticazione";
+
     const url = `https://wiki.acquistinretepa.it/index.php?title=${encodeURIComponent(title)}&action=render`;
 
     const agent = new https.Agent({
@@ -108,21 +98,12 @@ export default async function handler(req, res) {
         .get(url, { agent, timeout: 15000 }, (response) => {
           let data = "";
 
-          response.on("data", (chunk) => {
-            data += chunk;
-          });
-
-          response.on("end", () => {
-            if (response.statusCode && response.statusCode >= 400) {
-              reject(new Error(`Errore fetch: ${response.statusCode}`));
-              return;
-            }
-            resolve(data);
-          });
+          response.on("data", (chunk) => (data += chunk));
+          response.on("end", () => resolve(data));
         })
         .on("error", reject)
         .on("timeout", function () {
-          this.destroy(new Error("Timeout durante la fetch verso la wiki"));
+          this.destroy(new Error("Timeout fetch wiki"));
         });
     });
 
@@ -130,6 +111,7 @@ export default async function handler(req, res) {
 
     res.setHeader("Content-Type", "text/html; charset=UTF-8");
     res.setHeader("Cache-Control", "public, max-age=3600");
+
     res.status(200).send(clean);
   } catch (err) {
     res.status(500).send(`Errore: ${err.message}`);
